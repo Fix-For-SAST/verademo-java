@@ -1,5 +1,7 @@
 package com.veracode.verademo.commands;
 
+import java.io.UnsupportedEncodingException;
+import java.net.URLEncoder;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -34,18 +36,40 @@ public class ListenCommand implements BlabberCommand {
 			action.setString(2, username);
 			action.execute();
 
-			sqlQuery = "SELECT blab_name FROM users WHERE username = '" + blabberUsername + "'";
-			Statement sqlStatement = connect.createStatement();
-			logger.info(sqlQuery);
-			ResultSet result = sqlStatement.executeQuery(sqlQuery);
-			result.next();
+			// Use PreparedStatement to prevent SQL injection
+			sqlQuery = "SELECT blab_name FROM users WHERE username = ?";
+			try (PreparedStatement sqlStatement = connect.prepareStatement(sqlQuery)) {
+				sqlStatement.setString(1, blabberUsername);
+				// Sanitize for log output
+				try {
+					String safeBlabberUsername = URLEncoder.encode(blabberUsername, "UTF-8");
+					logger.info("SELECT blab_name FROM users WHERE username = " + safeBlabberUsername);
+				} catch (UnsupportedEncodingException e) {
+					logger.info("SELECT blab_name FROM users WHERE username = [encoded]");
+				}
+				try (ResultSet rs = sqlStatement.executeQuery()) {
+					rs.next();
 
-			/* START EXAMPLE VULNERABILITY */
-			String event = username + " started listening to " + blabberUsername + " (" + result.getString(1) + ")";
-			sqlQuery = "INSERT INTO users_history (blabber, event) VALUES (\"" + username + "\", \"" + event + "\")";
-			logger.info(sqlQuery);
-			sqlStatement.execute(sqlQuery);
-			/* END EXAMPLE VULNERABILITY */
+					/* START EXAMPLE VULNERABILITY */
+					String event = username + " started listening to " + blabberUsername + " (" + rs.getString(1) + ")";
+					// Use PreparedStatement to prevent SQL injection
+					String insertQuery = "INSERT INTO users_history (blabber, event) VALUES (?, ?)";
+					try (PreparedStatement historyStatement = connect.prepareStatement(insertQuery)) {
+						historyStatement.setString(1, username);
+						historyStatement.setString(2, event);
+						// Sanitize for log output
+						try {
+							String safeUsername = URLEncoder.encode(username, "UTF-8");
+							String safeEvent = URLEncoder.encode(event, "UTF-8");
+							logger.info("INSERT INTO users_history (blabber, event) VALUES (" + safeUsername + ", " + safeEvent + ")");
+						} catch (UnsupportedEncodingException e) {
+							logger.info("INSERT INTO users_history (blabber, event) VALUES ([encoded], [encoded])");
+						}
+						historyStatement.execute();
+					}
+					/* END EXAMPLE VULNERABILITY */
+				}
+			}
 		} catch (SQLException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
