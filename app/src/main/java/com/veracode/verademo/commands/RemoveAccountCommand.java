@@ -1,5 +1,7 @@
 package com.veracode.verademo.commands;
 
+import java.io.UnsupportedEncodingException;
+import java.net.URLEncoder;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -36,21 +38,44 @@ public class RemoveAccountCommand implements BlabberCommand {
 			action.setString(2, blabberUsername);
 			action.execute();
 
-			sqlQuery = "SELECT blab_name FROM users WHERE username = '" + blabberUsername + "'";
-			Statement sqlStatement = connect.createStatement();
-			logger.info(sqlQuery);
-			ResultSet result = sqlStatement.executeQuery(sqlQuery);
-			result.next();
-
 			/* START EXAMPLE VULNERABILITY */
-			String event = "Removed account for blabber " + result.getString(1);
-			sqlQuery = "INSERT INTO users_history (blabber, event) VALUES ('" + blabberUsername + "', '" + event + "')";
-			logger.info(sqlQuery);
-			sqlStatement.execute(sqlQuery);
+			// Use try-with-resources to ensure Statement and ResultSet are properly closed (CWE-404)
+			sqlQuery = "SELECT blab_name FROM users WHERE username = ?";
+			try {
+				logger.info("SELECT blab_name FROM users WHERE username = " + URLEncoder.encode(blabberUsername, "UTF-8"));
+			} catch (UnsupportedEncodingException e1) {
+				logger.info("SELECT blab_name FROM users WHERE username = [encoding error]");
+			}
+			try (PreparedStatement selectStatement = connect.prepareStatement(sqlQuery)) {
+				selectStatement.setString(1, blabberUsername);
+				try (ResultSet result = selectStatement.executeQuery()) {
+					result.next();
 
-			sqlQuery = "DELETE FROM users WHERE username = '" + blabberUsername + "'";
-			logger.info(sqlQuery);
-			sqlStatement.execute(sqlQuery);
+					String event = "Removed account for blabber " + result.getString(1);
+					sqlQuery = "INSERT INTO users_history (blabber, event) VALUES (?, ?)";
+					try {
+						logger.info("INSERT INTO users_history (blabber, event) VALUES (" + URLEncoder.encode(blabberUsername, "UTF-8") + ", " + URLEncoder.encode(event, "UTF-8") + ")");
+					} catch (UnsupportedEncodingException e1) {
+						logger.info("INSERT INTO users_history (blabber, event) VALUES ([encoding error], [encoding error])");
+					}
+					try (PreparedStatement insertStatement = connect.prepareStatement(sqlQuery)) {
+						insertStatement.setString(1, blabberUsername);
+						insertStatement.setString(2, event);
+						insertStatement.execute();
+					}
+
+					sqlQuery = "DELETE FROM users WHERE username = ?";
+					try {
+						logger.info("DELETE FROM users WHERE username = " + URLEncoder.encode(blabberUsername, "UTF-8"));
+					} catch (UnsupportedEncodingException e1) {
+						logger.info("DELETE FROM users WHERE username = [encoding error]");
+					}
+					try (PreparedStatement deleteStatement = connect.prepareStatement(sqlQuery)) {
+						deleteStatement.setString(1, blabberUsername);
+						deleteStatement.execute();
+					}
+				}
+			}
 			/* END EXAMPLE VULNERABILITY */
 
 		} catch (SQLException e) {
