@@ -39,6 +39,7 @@ import com.veracode.verademo.utils.UserFactory;
 import com.veracode.verademo.utils.Utils;
 
 import org.apache.log4j.LogManager;
+import org.owasp.encoder.Encode;
 import org.apache.log4j.Logger;
 import org.mindrot.jbcrypt.BCrypt;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -112,7 +113,13 @@ public class UserController {
 			target = "";
 		}
 
-		logger.info("Entering showLogin with username " + username + " and target " + target);
+		try {
+			String safeUsername = URLEncoder.encode(username, "UTF-8");
+			String safeTarget = URLEncoder.encode(target, "UTF-8");
+			logger.info("Entering showLogin with username " + safeUsername + " and target " + safeTarget);
+		} catch (UnsupportedEncodingException e) {
+			logger.error("Error encoding parameters");
+		}
 
 		model.addAttribute("username", username);
 		model.addAttribute("target", target);
@@ -257,8 +264,9 @@ public class UserController {
 								// UTF-8 is always present
 								safeUsername = "";
 							}
+							String htmlSafeUsername = Encode.forHtml(username);
 							return String.format(
-									"Username '" + safeUsername + "' has password: %.2s%s",
+									"Username '" + htmlSafeUsername + "' has password: %.2s%s",
 									password,
 									String.format("%0" + (password.length() - 2) + "d", 0).replace("0", "*"));
 						} else {
@@ -269,7 +277,8 @@ public class UserController {
 								// UTF-8 is always present
 								safeUsername = "";
 							}
-							return "No password found for " + safeUsername;
+							String htmlSafeUsername = Encode.forHtml(username);
+							return "No password found for " + htmlSafeUsername;
 						}
 					}
 				}
@@ -573,12 +582,15 @@ public class UserController {
 			return "{\"message\": \"<script>alert('Error - please login');</script>\"}";
 		}
 
-		try {
-			String safeUserAgent = URLEncoder.encode(request.getHeader("User-Agent"), "UTF-8");
-			String safeSessionUsername = URLEncoder.encode(sessionUsername, "UTF-8");
-			logger.info("User is Logged In - continuing... UA=" + safeUserAgent + " U=" + safeSessionUsername);
-		} catch (UnsupportedEncodingException e) {
-			logger.error("Error encoding user info");
+		String userAgent = request.getHeader("User-Agent");
+		if (userAgent != null) {
+			try {
+				String safeUserAgent = URLEncoder.encode(userAgent, "UTF-8");
+				String safeSessionUsername = URLEncoder.encode(sessionUsername, "UTF-8");
+				logger.info("User is Logged In - continuing... UA=" + safeUserAgent + " U=" + safeSessionUsername);
+			} catch (UnsupportedEncodingException e) {
+				logger.error("Error encoding user info");
+			}
 		}
 
 		String oldUsername = sessionUsername;
