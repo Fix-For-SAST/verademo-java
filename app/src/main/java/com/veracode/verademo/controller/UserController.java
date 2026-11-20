@@ -52,6 +52,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.multipart.MultipartHttpServletRequest;
+import org.owasp.encoder.Encode;
 
 /**
  * @author johnadmin
@@ -112,7 +113,13 @@ public class UserController {
 			target = "";
 		}
 
-		logger.info("Entering showLogin with username " + username + " and target " + target);
+		try {
+			String safeUsername = URLEncoder.encode(username, "UTF-8");
+			String safeTarget = URLEncoder.encode(target, "UTF-8");
+			logger.info("Entering showLogin with username " + safeUsername + " and target " + safeTarget);
+		} catch (UnsupportedEncodingException e) {
+			logger.error("Error encoding parameters");
+		}
 
 		model.addAttribute("username", username);
 		model.addAttribute("target", target);
@@ -250,25 +257,13 @@ public class UserController {
 							}
 							String formatString = "Username '" + safeUsernameForLog + "' has password: %.2s%s";
 							logger.info(formatString);
-							String safeUsername = "";
-							try {
-								safeUsername = URLEncoder.encode(username, "UTF-8");
-							} catch (UnsupportedEncodingException e) {
-								// UTF-8 is always present
-								safeUsername = "";
-							}
+							String safeUsername = Encode.forHtml(username);
 							return String.format(
 									"Username '" + safeUsername + "' has password: %.2s%s",
 									password,
 									String.format("%0" + (password.length() - 2) + "d", 0).replace("0", "*"));
 						} else {
-							String safeUsername = "";
-							try {
-								safeUsername = URLEncoder.encode(username, "UTF-8");
-							} catch (UnsupportedEncodingException e) {
-								// UTF-8 is always present
-								safeUsername = "";
-							}
+							String safeUsername = Encode.forHtml(username);
 							return "No password found for " + safeUsername;
 						}
 					}
@@ -733,11 +728,11 @@ public class UserController {
 
 			// Set content attributes for the response
 			// Sanitize mimeType to prevent CRLF injection
-			String sanitizedMimeType = mimeType.replaceAll("[\\r\\n]", "");
+			String sanitizedMimeType = mimeType.replaceAll("[\\r\\n\\u0000-\\u001F\\u007F-\\u009F]", "");
 			response.setContentType(sanitizedMimeType);
 			response.setContentLength((int) downloadFile.length());
 			// Sanitize imageName to prevent CRLF injection
-			String sanitizedImageName = imageName.replaceAll("[\\r\\n]", "");
+			String sanitizedImageName = imageName.replaceAll("[\\r\\n\\u0000-\\u001F\\u007F-\\u009F]", "");
 			response.setHeader("Content-Disposition", "attachment; filename=" + sanitizedImageName);
 
 			// get output stream of the response
