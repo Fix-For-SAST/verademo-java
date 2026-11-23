@@ -1,6 +1,8 @@
 package com.veracode.verademo.controller;
 
+import java.io.UnsupportedEncodingException;
 import java.lang.reflect.InvocationTargetException;
+import java.net.URLEncoder;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -11,6 +13,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 import javax.servlet.http.HttpServletRequest;
+
+import org.owasp.encoder.Encode;
 
 import com.veracode.verademo.commands.BlabberCommand;
 import com.veracode.verademo.model.Blab;
@@ -57,20 +61,26 @@ public class BlabController {
 			return Utils.redirect("login?target=profile");
 		}
 
-		logger.info("User is Logged In - continuing... UA=" + httpRequest.getHeader("User-Agent") + " U=" + username);
-
-		Connection connect = null;
-		PreparedStatement blabsByMe = null;
-		PreparedStatement blabsForMe = null;
+		try {
+			logger.info("User is Logged In - continuing... UA=" + URLEncoder.encode(httpRequest.getHeader("User-Agent"), "UTF-8") + " U=" + URLEncoder.encode(username, "UTF-8"));
+		} catch (UnsupportedEncodingException e) {
+			logger.info("User is Logged In - continuing...");
+		}
 
 		try {
 			logger.info("Getting Database connection");
 			Class.forName("com.mysql.jdbc.Driver");
-			connect = DriverManager.getConnection(Constants.create().getJdbcConnectionString());
+		} catch (ClassNotFoundException ex) {
+			logger.error(ex);
+			return "feed";
+		}
+
+		try (Connection connect = DriverManager.getConnection(Constants.create().getJdbcConnectionString());
+			 PreparedStatement blabsForMe = connect.prepareStatement(String.format(sqlBlabsForMe, 10, 0));
+			 PreparedStatement blabsByMe = connect.prepareStatement(sqlBlabsByMe)) {
 
 			// Find the Blabs that this user listens to
 			logger.info("Preparing the BlabsForMe Prepared Statement");
-			blabsForMe = connect.prepareStatement(String.format(sqlBlabsForMe, 10, 0));
 			blabsForMe.setString(1, username);
 			logger.info("Executing the BlabsForMe Prepared Statement");
 			ResultSet blabsForMeResults = blabsForMe.executeQuery();
@@ -96,7 +106,6 @@ public class BlabController {
 
 			// Find the Blabs by this user
 			logger.info("Preparing the BlabsByMe Prepared Statement");
-			blabsByMe = connect.prepareStatement(sqlBlabsByMe);
 			blabsByMe.setString(1, username);
 			logger.info("Executing the BlabsByMe Prepared Statement");
 			ResultSet blabsByMeResults = blabsByMe.executeQuery();
@@ -113,30 +122,8 @@ public class BlabController {
 				myBlabs.add(post);
 			}
 			model.addAttribute("blabsByMe", myBlabs);
-		} catch (SQLException | ClassNotFoundException ex) {
+		} catch (SQLException ex) {
 			logger.error(ex);
-		} finally {
-			try {
-				if (blabsByMe != null) {
-					blabsByMe.close();
-				}
-			} catch (SQLException exceptSql) {
-				logger.error(exceptSql);
-			}
-			try {
-				if (blabsForMe != null) {
-					blabsForMe.close();
-				}
-			} catch (SQLException exceptSql) {
-				logger.error(exceptSql);
-			}
-			try {
-				if (connect != null) {
-					connect.close();
-				}
-			} catch (SQLException exceptSql) {
-				logger.error(exceptSql);
-			}
 		}
 
 		return "feed";
@@ -181,10 +168,11 @@ public class BlabController {
 				Blab blab = new Blab();
 				blab.setPostDate(results.getDate(4));
 
-				ret.append(String.format(template, results.getString(1), // username
-						results.getString(3), // blab content
-						results.getString(2), // blab name
-						blab.getPostDateString(), // timestamp
+				ret.append(String.format(template,
+						Encode.forHtmlAttribute(results.getString(1)), // username
+						Encode.forHtmlContent(results.getString(3)), // blab content
+						Encode.forHtmlContent(results.getString(2)), // blab name
+						Encode.forHtmlContent(blab.getPostDateString()), // timestamp
 						results.getInt(6), // blabID
 						results.getInt(5) // comment count
 				));
@@ -210,7 +198,11 @@ public class BlabController {
 			logger.info("User is not Logged In - redirecting...");
 			return Utils.redirect("login?target=profile");
 		}
-		logger.info("User is Logged In - continuing... UA=" + httpRequest.getHeader("User-Agent") + " U=" + username);
+		try {
+			logger.info("User is Logged In - continuing... UA=" + URLEncoder.encode(httpRequest.getHeader("User-Agent"), "UTF-8") + " U=" + URLEncoder.encode(username, "UTF-8"));
+		} catch (UnsupportedEncodingException e) {
+			logger.info("User is Logged In - continuing...");
+		}
 
 		Connection connect = null;
 		PreparedStatement addBlab = null;
@@ -275,7 +267,11 @@ public class BlabController {
 			return Utils.redirect("login?target=profile");
 		}
 
-		logger.info("User is Logged In - continuing... UA=" + httpRequest.getHeader("User-Agent") + " U=" + username);
+		try {
+			logger.info("User is Logged In - continuing... UA=" + URLEncoder.encode(httpRequest.getHeader("User-Agent"), "UTF-8") + " U=" + URLEncoder.encode(username, "UTF-8"));
+		} catch (UnsupportedEncodingException e) {
+			logger.info("User is Logged In - continuing...");
+		}
 
 		Connection connect = null;
 		PreparedStatement blabDetails = null;
@@ -370,7 +366,11 @@ public class BlabController {
 			return Utils.redirect("login?target=feed");
 		}
 
-		logger.info("User is Logged In - continuing... UA=" + httpRequest.getHeader("User-Agent") + " U=" + username);
+		try {
+			logger.info("User is Logged In - continuing... UA=" + URLEncoder.encode(httpRequest.getHeader("User-Agent"), "UTF-8") + " U=" + URLEncoder.encode(username, "UTF-8"));
+		} catch (UnsupportedEncodingException e) {
+			logger.info("User is Logged In - continuing...");
+		}
 		Connection connect = null;
 		PreparedStatement addComment = null;
 		String addCommentSql = "INSERT INTO comments (blabid, blabber, content, timestamp) values (?, ?, ?, ?);";
@@ -441,17 +441,37 @@ public class BlabController {
 			return Utils.redirect("login?target=blabbers");
 		}
 
-		logger.info("User is Logged In - continuing... UA=" + httpRequest.getHeader("User-Agent") + " U=" + username);
+		try {
+			logger.info("User is Logged In - continuing... UA=" + URLEncoder.encode(httpRequest.getHeader("User-Agent"), "UTF-8") + " U=" + URLEncoder.encode(username, "UTF-8"));
+		} catch (UnsupportedEncodingException e) {
+			logger.info("User is Logged In - continuing...");
+		}
 
 		Connection connect = null;
 		PreparedStatement blabberQuery = null;
 
 		/* START EXAMPLE VULNERABILITY */
+		// Validate sort parameter to prevent SQL injection
+		String validatedSort;
+		switch (sort) {
+			case "blab_name ASC":
+			case "blab_name DESC":
+			case "username ASC":
+			case "username DESC":
+			case "created_at ASC":
+			case "created_at DESC":
+				validatedSort = sort;
+				break;
+			default:
+				validatedSort = "blab_name ASC";
+				break;
+		}
+
 		String blabbersSql = "SELECT users.username," + " users.blab_name," + " users.created_at,"
 				+ " SUM(if(listeners.listener=?, 1, 0)) as listeners,"
 				+ " SUM(if(listeners.status='Active',1,0)) as listening"
 				+ " FROM users LEFT JOIN listeners ON users.username = listeners.blabber"
-				+ " WHERE users.username NOT IN (\"admin\",?)" + " GROUP BY users.username" + " ORDER BY " + sort + ";";
+				+ " WHERE users.username NOT IN (\"admin\",?)" + " GROUP BY users.username" + " ORDER BY " + validatedSort + ";";
 
 		try {
 			logger.info("Getting Database connection");
@@ -520,15 +540,23 @@ public class BlabController {
 			return Utils.redirect("login?target=blabbers");
 		}
 
-		logger.info("User is Logged In - continuing... UA=" + httpRequest.getHeader("User-Agent") + " U=" + username);
+		try {
+			logger.info("User is Logged In - continuing... UA=" + URLEncoder.encode(httpRequest.getHeader("User-Agent"), "UTF-8") + " U=" + URLEncoder.encode(username, "UTF-8"));
+		} catch (UnsupportedEncodingException e) {
+			logger.info("User is Logged In - continuing...");
+		}
 
 		if (command == null || command.isEmpty()) {
 			logger.info("Empty command provided...");
 			return nextView = Utils.redirect("login?target=blabbers");
 		}
 
-		logger.info("blabberUsername = " + blabberUsername);
-		logger.info("command = " + command);
+		try {
+			logger.info("blabberUsername = " + URLEncoder.encode(blabberUsername, "UTF-8"));
+			logger.info("command = " + URLEncoder.encode(command, "UTF-8"));
+		} catch (UnsupportedEncodingException e) {
+			logger.info("blabberUsername and command provided");
+		}
 
 		Connection connect = null;
 		PreparedStatement action = null;
