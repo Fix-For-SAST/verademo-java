@@ -1,5 +1,7 @@
 package com.veracode.verademo.commands;
 
+import java.io.UnsupportedEncodingException;
+import java.net.URLEncoder;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -30,30 +32,43 @@ public class RemoveAccountCommand implements BlabberCommand {
 		logger.info(sqlQuery);
 		PreparedStatement action;
 		try {
+			// Sanitize username for logging to prevent log injection
+			String safeUsername = URLEncoder.encode(blabberUsername, "UTF-8");
+
 			action = connect.prepareStatement(sqlQuery);
 
 			action.setString(1, blabberUsername);
 			action.setString(2, blabberUsername);
 			action.execute();
 
-			sqlQuery = "SELECT blab_name FROM users WHERE username = '" + blabberUsername + "'";
-			Statement sqlStatement = connect.createStatement();
-			logger.info(sqlQuery);
-			ResultSet result = sqlStatement.executeQuery(sqlQuery);
-			result.next();
+			// Use PreparedStatement to prevent SQL injection and try-with-resources to prevent resource leaks
+			sqlQuery = "SELECT blab_name FROM users WHERE username = ?";
+			try (PreparedStatement selectStmt = connect.prepareStatement(sqlQuery);
+			     PreparedStatement insertStmt = connect.prepareStatement("INSERT INTO users_history (blabber, event) VALUES (?, ?)");
+			     PreparedStatement deleteStmt = connect.prepareStatement("DELETE FROM users WHERE username = ?")) {
 
-			/* START EXAMPLE VULNERABILITY */
-			String event = "Removed account for blabber " + result.getString(1);
-			sqlQuery = "INSERT INTO users_history (blabber, event) VALUES ('" + blabberUsername + "', '" + event + "')";
-			logger.info(sqlQuery);
-			sqlStatement.execute(sqlQuery);
+				selectStmt.setString(1, blabberUsername);
+				logger.info("SELECT blab_name FROM users WHERE username = " + safeUsername);
+				try (ResultSet result = selectStmt.executeQuery()) {
+					result.next();
 
-			sqlQuery = "DELETE FROM users WHERE username = '" + blabberUsername + "'";
-			logger.info(sqlQuery);
-			sqlStatement.execute(sqlQuery);
-			/* END EXAMPLE VULNERABILITY */
+					/* START EXAMPLE VULNERABILITY */
+					String event = "Removed account for blabber " + result.getString(1);
+					insertStmt.setString(1, blabberUsername);
+					insertStmt.setString(2, event);
+					logger.info("INSERT INTO users_history (blabber, event) VALUES (" + safeUsername + ", " + event + ")");
+					insertStmt.execute();
+
+					deleteStmt.setString(1, blabberUsername);
+					logger.info("DELETE FROM users WHERE username = " + safeUsername);
+					deleteStmt.execute();
+					/* END EXAMPLE VULNERABILITY */
+				}
+			}
 
 		} catch (SQLException e) {
+			e.printStackTrace();
+		} catch (UnsupportedEncodingException e) {
 			e.printStackTrace();
 		}
 	}
