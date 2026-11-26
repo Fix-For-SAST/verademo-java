@@ -114,7 +114,13 @@ public class UserController {
 			target = "";
 		}
 
-		logger.info("Entering showLogin with username " + username + " and target " + target);
+		try {
+			String safeUsername = URLEncoder.encode(username, "UTF-8");
+			String safeTarget = URLEncoder.encode(target, "UTF-8");
+			logger.info("Entering showLogin with username " + safeUsername + " and target " + safeTarget);
+		} catch (UnsupportedEncodingException e) {
+			logger.info("Entering showLogin with username [encoding error] and target [encoding error]");
+		}
 
 		model.addAttribute("username", username);
 		model.addAttribute("target", target);
@@ -248,6 +254,7 @@ public class UserController {
 			if (result.first()) {
 				String password = result.getString("password_hint");
 				String safeUsernameFormatted = HtmlUtils.htmlEscape(username);
+				String safePassword = HtmlUtils.htmlEscape(password);
 				String formatString = "Username '" + safeUsernameFormatted + "' has password: %.2s%s";
 				try {
 					String safeUsername = URLEncoder.encode(username, "UTF-8");
@@ -257,8 +264,8 @@ public class UserController {
 				}
 				return String.format(
 						formatString,
-						password,
-						String.format("%0" + (password.length() - 2) + "d", 0).replace("0", "*"));
+						safePassword,
+						String.format("%0" + (safePassword.length() - 2) + "d", 0).replace("0", "*"));
 			} else {
 				return "No password found for " + HtmlUtils.htmlEscape(username);
 			}
