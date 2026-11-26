@@ -30,6 +30,10 @@ public class User implements Serializable {
 		return new User(userName, password, dateCreated, lastLogin, blabName, realName);
 	}
 
+	// Default constructor for JSON deserialization
+	public User() {
+	}
+
 	public User(String userName, String password, Timestamp dateCreated, Timestamp lastLogin, String blabName,
 			String realName) {
 		this.userName = userName;
@@ -56,10 +60,9 @@ public class User implements Serializable {
 		return password;
 	}
 
-	public String setPassword(String password)
+	public void setPassword(String password)
 	{
-		this.password = BCrypt.hashpw(password, BCrypt.gensalt());
-		return password;
+		this.password = password;
 	}
 	
 	public String getPasswordHint()
@@ -67,10 +70,9 @@ public class User implements Serializable {
 		return hint;
 	}
 
-	public String setPasswordHint(String hint)
+	public void setPasswordHint(String hint)
 	{
 		this.hint = hint;
-		return hint;
 	}
 
 	public Timestamp getDateCreated()
@@ -78,9 +80,19 @@ public class User implements Serializable {
 		return dateCreated;
 	}
 
+	public void setDateCreated(Timestamp dateCreated)
+	{
+		this.dateCreated = dateCreated;
+	}
+
 	public Timestamp getLastLogin()
 	{
 		return lastLogin;
+	}
+
+	public void setLastLogin(Timestamp lastLogin)
+	{
+		this.lastLogin = lastLogin;
 	}
 
 	public String getBlabName()
@@ -88,8 +100,18 @@ public class User implements Serializable {
 		return blabName;
 	}
 
+	public void setBlabName(String blabName)
+	{
+		this.blabName = blabName;
+	}
+
 	public String getRealName()
 	{
 		return realName;
+	}
+
+	public void setRealName(String realName)
+	{
+		this.realName = realName;
 	}
 }
