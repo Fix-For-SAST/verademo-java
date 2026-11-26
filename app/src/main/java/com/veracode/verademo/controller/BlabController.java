@@ -4,6 +4,8 @@ import java.io.UnsupportedEncodingException;
 import java.lang.reflect.InvocationTargetException;
 import java.net.URLEncoder;
 import java.sql.Connection;
+
+import org.owasp.encoder.Encode;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -171,23 +173,18 @@ public class BlabController {
 				Blab blab = new Blab();
 				blab.setPostDate(results.getDate(4));
 
-				try {
-					String safeUsername = URLEncoder.encode(results.getString(1), "UTF-8");
-					String safeContent = URLEncoder.encode(results.getString(3), "UTF-8");
-					String safeBlabName = URLEncoder.encode(results.getString(2), "UTF-8");
-					String safeDateString = URLEncoder.encode(blab.getPostDateString(), "UTF-8");
+				String safeUsername = Encode.forHtml(results.getString(1));
+				String safeContent = Encode.forHtml(results.getString(3));
+				String safeBlabName = Encode.forHtml(results.getString(2));
+				String safeDateString = Encode.forHtml(blab.getPostDateString());
 
-					ret.append(String.format(template, safeUsername, // username
-							safeContent, // blab content
-							safeBlabName, // blab name
-							safeDateString, // timestamp
-							results.getInt(6), // blabID
-							results.getInt(5) // comment count
-					));
-				} catch (UnsupportedEncodingException e) {
-					// UTF-8 is always supported, this should never happen
-					logger.error(e);
-				}
+				ret.append(String.format(template, safeUsername, // username
+						safeContent, // blab content
+						safeBlabName, // blab name
+						safeDateString, // timestamp
+						results.getInt(6), // blabID
+						results.getInt(5) // comment count
+				));
 			}
 		} catch (SQLException ex) {
 			logger.error(ex);
@@ -550,7 +547,13 @@ public class BlabController {
 			return Utils.redirect("login?target=blabbers");
 		}
 
-		logger.info("User is Logged In - continuing... UA=" + httpRequest.getHeader("User-Agent") + " U=" + username);
+		try {
+			String safeUserAgent = URLEncoder.encode(httpRequest.getHeader("User-Agent"), "UTF-8");
+			String safeUsername = URLEncoder.encode(username, "UTF-8");
+			logger.info("User is Logged In - continuing... UA=" + safeUserAgent + " U=" + safeUsername);
+		} catch (UnsupportedEncodingException e) {
+			logger.info("User is Logged In - continuing...");
+		}
 
 		if (command == null || command.isEmpty()) {
 			logger.info("Empty command provided...");
