@@ -8,6 +8,8 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.io.UnsupportedEncodingException;
+import java.net.URLEncoder;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -19,6 +21,8 @@ import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.List;
 import java.util.Properties;
+
+import org.springframework.web.util.HtmlUtils;
 
 import javax.mail.Message;
 import javax.mail.MessagingException;
@@ -144,99 +148,62 @@ public class UserController {
 			nextView = Utils.redirect("feed");
 		}
 
-		Connection connect = null;
-		/* START BAD CODE */
-		Statement sqlStatement = null;
-		/* END BAD CODE */
-		/* START GOOD CODE
-		PreparedStatement sqlStatement = null;
-        /* END GOOD CODE */
-		try {
+		try (Connection connect = DriverManager.getConnection(Constants.create().getJdbcConnectionString());
+			 PreparedStatement sqlStatement = connect.prepareStatement(
+				"select username, password, password_hint, created_at, last_login, real_name, blab_name from users where username=?")) {
+
 			// Get the Database Connection
-			logger.info("Creating the Database connection");
-			Class.forName("com.mysql.jdbc.Driver");
-			connect = DriverManager.getConnection(Constants.create().getJdbcConnectionString());
-
-
-			/* START BAD CODE */
-			// Execute the query
-			logger.info("Creating the Statement");
-			String sqlQuery = "select username, password, password_hint, created_at, last_login, real_name, blab_name from users where username='"
-					+ username + "';";
-			sqlStatement = connect.createStatement();
-			logger.info("Execute the Statement");
-			ResultSet result = sqlStatement.executeQuery(sqlQuery);
-			/* END BAD CODE */
-			/* START GOOD CODE
-			String sqlQuery = "select * from users where username=? and password=?;";
-			logger.info("Preparing the PreparedStatement");
-			sqlStatement = connect.prepareStatement(sqlQuery);
-			logger.info("Setting parameters for the PreparedStatement");
-			sqlStatement.setString(1, username);
-			sqlStatement.setString(2, password);
-			logger.info("Executing the PreparedStatement");
-			ResultSet result = sqlStatement.executeQuery();
-			/* END GOOD CODE */
-
-
-
-			// Did we find exactly 1 user that matched?
-			if (result.first() && BCrypt.checkpw(password, result.getString("password"))) {
-				logger.info("User Found.");
-				// Remember the username as a courtesy.
-				Utils.setUsernameCookie(response, result.getString("username"));
-
-				// If the user wants us to auto-login, store the user details as a cookie.
-				if (remember != null) {
-					User currentUser = new User(result.getString("username"), result.getString("password_hint"),
-							result.getTimestamp("created_at"), result.getTimestamp("last_login"),
-							result.getString("real_name"), result.getString("blab_name"));
-
-					UserFactory.updateInResponse(currentUser, response);
-				}
-
-				Utils.setSessionUserName(req, response, result.getString("username"));
-
-				// Update last login timestamp
-				PreparedStatement update = connect.prepareStatement("UPDATE users SET last_login=NOW() WHERE username=?;");
-				update.setString(1, result.getString("username"));
-				update.execute();
-			} else {
-				// Login failed...
-				logger.info("User Not Found");
-				model.addAttribute("error", "Login failed. Please try again.");
+			try {
+				logger.info("Creating the Database connection");
+				Class.forName("com.mysql.jdbc.Driver");
+			} catch (ClassNotFoundException cnfe) {
+				logger.error(cnfe);
+				model.addAttribute("error", cnfe.getMessage());
 				model.addAttribute("target", target);
-				nextView = "login";
+				return "login";
+			}
+
+			// Execute the query
+			logger.info("Preparing the PreparedStatement");
+			sqlStatement.setString(1, username);
+			logger.info("Executing the PreparedStatement");
+			try (ResultSet result = sqlStatement.executeQuery()) {
+
+				// Did we find exactly 1 user that matched?
+				if (result.first() && BCrypt.checkpw(password, result.getString("password"))) {
+					logger.info("User Found.");
+					// Remember the username as a courtesy.
+					Utils.setUsernameCookie(response, result.getString("username"));
+
+					// If the user wants us to auto-login, store the user details as a cookie.
+					if (remember != null) {
+						User currentUser = new User(result.getString("username"), result.getString("password_hint"),
+								result.getTimestamp("created_at"), result.getTimestamp("last_login"),
+								result.getString("real_name"), result.getString("blab_name"));
+
+						UserFactory.updateInResponse(currentUser, response);
+					}
+
+					Utils.setSessionUserName(req, response, result.getString("username"));
+
+					// Update last login timestamp
+					try (PreparedStatement update = connect.prepareStatement("UPDATE users SET last_login=NOW() WHERE username=?;")) {
+						update.setString(1, result.getString("username"));
+						update.execute();
+					}
+				} else {
+					// Login failed...
+					logger.info("User Not Found");
+					model.addAttribute("error", "Login failed. Please try again.");
+					model.addAttribute("target", target);
+					nextView = "login";
+				}
 			}
 		} catch (SQLException exceptSql) {
 			logger.error(exceptSql);
 			model.addAttribute("error", exceptSql.getMessage() + "<br/>" + displayErrorForWeb(exceptSql));
 			model.addAttribute("target", target);
 			nextView = "login";
-		} catch (ClassNotFoundException cnfe) {
-			logger.error(cnfe);
-			model.addAttribute("error", cnfe.getMessage());
-			model.addAttribute("target", target);
-
-		} finally {
-			try {
-				if (sqlStatement != null) {
-					sqlStatement.close();
-				}
-			} catch (SQLException exceptSql) {
-				logger.error(exceptSql);
-				model.addAttribute("error", exceptSql.getMessage());
-				model.addAttribute("target", target);
-			}
-			try {
-				if (connect != null) {
-					connect.close();
-				}
-			} catch (SQLException exceptSql) {
-				logger.error(exceptSql);
-				model.addAttribute("error", exceptSql.getMessage());
-				model.addAttribute("target", target);
-			}
 		}
 
 		// Redirect to the appropriate place based on login actions above
@@ -247,7 +214,12 @@ public class UserController {
 	@RequestMapping(value = "/password-hint", method = RequestMethod.GET)
 	@ResponseBody
 	public String showPasswordHint(String username) {
-		logger.info("Entering password-hint with username: " + username);
+		try {
+			String safeUsername = URLEncoder.encode(username, "UTF-8");
+			logger.info("Entering password-hint with username: " + safeUsername);
+		} catch (UnsupportedEncodingException e) {
+			logger.error("Error encoding username for logging", e);
+		}
 
 		if (username == null || username.isEmpty()) {
 			return "No username provided, please type in your username first";
@@ -255,31 +227,45 @@ public class UserController {
 
 		try {
 			Class.forName("com.mysql.jdbc.Driver");
-
-			Connection connect = DriverManager.getConnection(Constants.create().getJdbcConnectionString());
-
-			String sql = "SELECT password_hint FROM users WHERE username = '" + username + "'";
-			logger.info(sql);
-			Statement statement = connect.createStatement();
-			ResultSet result = statement.executeQuery(sql);
-			if (result.first()) {
-				String password = result.getString("password_hint");
-				String formatString = "Username '" + username + "' has password: %.2s%s";
-				logger.info(formatString);
-				return String.format(
-						formatString,
-						password,
-						String.format("%0" + (password.length() - 2) + "d", 0).replace("0", "*"));
-			} else {
-				return "No password found for " + username;
-			}
 		} catch (ClassNotFoundException e) {
 			e.printStackTrace();
-		} catch (SQLException e) {
-			e.printStackTrace();
+			return "ERROR!";
 		}
 
-		return "ERROR!";
+		try (Connection connect = DriverManager.getConnection(Constants.create().getJdbcConnectionString());
+			 PreparedStatement statement = connect.prepareStatement("SELECT password_hint FROM users WHERE username = ?")) {
+
+			statement.setString(1, username);
+			try {
+				String safeUsername = URLEncoder.encode(username, "UTF-8");
+				logger.info("Executing query for username: " + safeUsername);
+			} catch (UnsupportedEncodingException e) {
+				logger.error("Error encoding username for logging", e);
+			}
+
+			try (ResultSet result = statement.executeQuery()) {
+				if (result.first()) {
+					String password = result.getString("password_hint");
+					String safeUsernameFormatted = HtmlUtils.htmlEscape(username);
+					String formatString = "Username '" + safeUsernameFormatted + "' has password: %.2s%s";
+					try {
+						String safeUsername = URLEncoder.encode(username, "UTF-8");
+						logger.info("Password hint found for username: " + safeUsername);
+					} catch (UnsupportedEncodingException e) {
+						logger.error("Error encoding username for logging", e);
+					}
+					return String.format(
+							formatString,
+							password,
+							String.format("%0" + (password.length() - 2) + "d", 0).replace("0", "*"));
+				} else {
+					return "No password found for " + HtmlUtils.htmlEscape(username);
+				}
+			}
+		} catch (SQLException e) {
+			e.printStackTrace();
+			return "ERROR!";
+		}
 	}
 
 	@RequestMapping(value = "/logout", method = { RequestMethod.GET, RequestMethod.POST })
@@ -318,18 +304,24 @@ public class UserController {
 		logger.info("Creating the Database connection");
 		try {
 			Class.forName("com.mysql.jdbc.Driver");
-			Connection connect = DriverManager.getConnection(Constants.create().getJdbcConnectionString());
+		} catch (ClassNotFoundException ex) {
+			logger.error(ex);
+			return "register";
+		}
 
-			String sql = "SELECT username FROM users WHERE username = '" + username + "'";
-			Statement statement = connect.createStatement();
-			ResultSet result = statement.executeQuery(sql);
-			if (result.first()) {
-				model.addAttribute("error", "Username '" + username + "' already exists!");
-				return "register";
-			} else {
-				return "register-finish";
+		try (Connection connect = DriverManager.getConnection(Constants.create().getJdbcConnectionString());
+			 PreparedStatement statement = connect.prepareStatement("SELECT username FROM users WHERE username = ?")) {
+
+			statement.setString(1, username);
+			try (ResultSet result = statement.executeQuery()) {
+				if (result.first()) {
+					model.addAttribute("error", "Username '" + username + "' already exists!");
+					return "register";
+				} else {
+					return "register-finish";
+				}
 			}
-		} catch (SQLException | ClassNotFoundException ex) {
+		} catch (SQLException ex) {
 			logger.error(ex);
 		}
 
@@ -363,51 +355,38 @@ public class UserController {
 			return "register";
 		}
 
-		Connection connect = null;
-		Statement sqlStatement = null;
-
 		try {
-			// Get the Database Connection
-			logger.info("Creating the Database connection");
 			Class.forName("com.mysql.jdbc.Driver");
-			connect = DriverManager.getConnection(Constants.create().getJdbcConnectionString());
+		} catch (ClassNotFoundException ex) {
+			logger.error(ex);
+			return "register";
+		}
 
-			/* START EXAMPLE VULNERABILITY */
+		try (Connection connect = DriverManager.getConnection(Constants.create().getJdbcConnectionString());
+			 PreparedStatement sqlStatement = connect.prepareStatement(
+				"insert into users (username, password, created_at, real_name, blab_name) values(?, ?, ?, ?, ?)")) {
+
 			// Execute the query
 			String mysqlCurrentDateTime = (new SimpleDateFormat("yyyy-MM-dd HH:mm:ss"))
 					.format(Calendar.getInstance().getTime());
-			StringBuilder query = new StringBuilder();
-			query.append("insert into users (username, password, created_at, real_name, blab_name) values(");
-			query.append("'" + username + "',");
-			query.append("'" + BCrypt.hashpw(password, BCrypt.gensalt()) + "',");
-			query.append("'" + mysqlCurrentDateTime + "',");
-			query.append("'" + realName + "',");
-			query.append("'" + blabName + "'");
-			query.append(");");
 
-			sqlStatement = connect.createStatement();
-			sqlStatement.execute(query.toString());
-			logger.info(query.toString());
-			/* END EXAMPLE VULNERABILITY */
+			sqlStatement.setString(1, username);
+			sqlStatement.setString(2, BCrypt.hashpw(password, BCrypt.gensalt()));
+			sqlStatement.setString(3, mysqlCurrentDateTime);
+			sqlStatement.setString(4, realName);
+			sqlStatement.setString(5, blabName);
+
+			sqlStatement.execute();
+			try {
+				String safeUsername = URLEncoder.encode(username, "UTF-8");
+				logger.info("User registered: " + safeUsername);
+			} catch (UnsupportedEncodingException e) {
+				logger.error("Error encoding username for logging", e);
+			}
 
 			emailUser(username);
-		} catch (SQLException | ClassNotFoundException ex) {
+		} catch (SQLException ex) {
 			logger.error(ex);
-		} finally {
-			try {
-				if (sqlStatement != null) {
-					sqlStatement.close();
-				}
-			} catch (SQLException exceptSql) {
-				logger.error(exceptSql);
-			}
-			try {
-				if (connect != null) {
-					connect.close();
-				}
-			} catch (SQLException exceptSql) {
-				logger.error(exceptSql);
-			}
 		}
 
 		return Utils.redirect("login?username=" + username);
@@ -430,16 +409,28 @@ public class UserController {
 			message.setFrom(new InternetAddress(from));
 			message.addRecipient(Message.RecipientType.TO, new InternetAddress(to));
 
-			/* START EXAMPLE VULNERABILITY */
-			message.setSubject(env.getProperty("mail.subject.new_user") + " " + username);
-			/* END EXAMPLE VULNERABILITY */
+			// Sanitize username to prevent header injection
+			String safeUsername = username.replaceAll("[\\r\\n]", "");
+			message.setSubject(env.getProperty("mail.subject.new_user") + " " + safeUsername);
 
-			message.setText("A new VeraDemo user registered: " + username);
+			message.setText("A new VeraDemo user registered: " + safeUsername);
 
-			logger.info("Sending email to admin");
-			Transport.send(message);
+			try {
+				String encodedUsername = URLEncoder.encode(username, "UTF-8");
+				logger.info("Sending email to admin for user: " + encodedUsername);
+			} catch (UnsupportedEncodingException e) {
+				logger.error("Error encoding username for logging", e);
+			}
+
+			try {
+				Transport.send(message);
+			} catch (MessagingException sendEx) {
+				// Log generic error without exposing details
+				logger.error("Failed to send email notification");
+			}
 		} catch (MessagingException mex) {
-			mex.printStackTrace();
+			// Log generic error without exposing details
+			logger.error("Failed to create email message");
 		}
 	}
 
@@ -457,8 +448,6 @@ public class UserController {
 			return Utils.redirect("login?target=profile");
 		}
 
-		Connection connect = null;
-		PreparedStatement myHecklers = null, myInfo = null;
 		String sqlMyHecklers = "SELECT users.username, users.blab_name, users.created_at "
 				+ "FROM users LEFT JOIN listeners ON users.username = listeners.listener "
 				+ "WHERE listeners.blabber=? AND listeners.status='Active';";
@@ -466,69 +455,74 @@ public class UserController {
 		try {
 			logger.info("Getting Database connection");
 			Class.forName("com.mysql.jdbc.Driver");
-			connect = DriverManager.getConnection(Constants.create().getJdbcConnectionString());
+		} catch (ClassNotFoundException ex) {
+			logger.error(ex);
+			return "profile";
+		}
+
+		try (Connection connect = DriverManager.getConnection(Constants.create().getJdbcConnectionString());
+			 PreparedStatement myHecklers = connect.prepareStatement(sqlMyHecklers)) {
 
 			// Find the Blabbers that this user listens to
 			logger.info(sqlMyHecklers);
-			myHecklers = connect.prepareStatement(sqlMyHecklers);
 			myHecklers.setString(1, username);
-			ResultSet myHecklersResults = myHecklers.executeQuery();
 
 			List<Blabber> hecklers = new ArrayList<Blabber>();
-			while (myHecklersResults.next()) {
-				Blabber heckler = new Blabber();
-				heckler.setUsername(myHecklersResults.getString(1));
-				heckler.setBlabName(myHecklersResults.getString(2));
-				heckler.setCreatedDate(myHecklersResults.getDate(3));
-				hecklers.add(heckler);
+			try (ResultSet myHecklersResults = myHecklers.executeQuery()) {
+				while (myHecklersResults.next()) {
+					Blabber heckler = new Blabber();
+					heckler.setUsername(myHecklersResults.getString(1));
+					heckler.setBlabName(myHecklersResults.getString(2));
+					heckler.setCreatedDate(myHecklersResults.getDate(3));
+					hecklers.add(heckler);
+				}
 			}
 
 			// Get the audit trail for this user
 			ArrayList<String> events = new ArrayList<String>();
 
-			/* START EXAMPLE VULNERABILITY */
-			String sqlMyEvents = "select event from users_history where blabber=\"" + username
-					+ "\" ORDER BY eventid DESC; ";
-			logger.info(sqlMyEvents);
-			Statement sqlStatement = connect.createStatement();
-			ResultSet userHistoryResult = sqlStatement.executeQuery(sqlMyEvents);
-			/* END EXAMPLE VULNERABILITY */
+			String sqlMyEvents = "select event from users_history where blabber=? ORDER BY eventid DESC";
+			try {
+				String safeUsername = URLEncoder.encode(username, "UTF-8");
+				logger.info("Fetching events for user: " + safeUsername);
+			} catch (UnsupportedEncodingException e) {
+				logger.error("Error encoding username for logging", e);
+			}
 
-			while (userHistoryResult.next()) {
-				events.add(userHistoryResult.getString(1));
+			try (PreparedStatement sqlStatement = connect.prepareStatement(sqlMyEvents)) {
+				sqlStatement.setString(1, username);
+				try (ResultSet userHistoryResult = sqlStatement.executeQuery()) {
+					while (userHistoryResult.next()) {
+						events.add(userHistoryResult.getString(1));
+					}
+				}
 			}
 
 			// Get the users information
-			String sql = "SELECT username, real_name, blab_name FROM users WHERE username = '" + username + "'";
-			logger.info(sql);
-			myInfo = connect.prepareStatement(sql);
-			ResultSet myInfoResults = myInfo.executeQuery();
-			myInfoResults.next();
+			String sql = "SELECT username, real_name, blab_name FROM users WHERE username = ?";
+			try {
+				String safeUsername = URLEncoder.encode(username, "UTF-8");
+				logger.info("Fetching user info for: " + safeUsername);
+			} catch (UnsupportedEncodingException e) {
+				logger.error("Error encoding username for logging", e);
+			}
 
-			// Send these values to our View
-			model.addAttribute("hecklers", hecklers);
-			model.addAttribute("events", events);
-			model.addAttribute("username", myInfoResults.getString("username"));
-			model.addAttribute("image", getProfileImageNameFromUsername(myInfoResults.getString("username")));
-			model.addAttribute("realName", myInfoResults.getString("real_name"));
-			model.addAttribute("blabName", myInfoResults.getString("blab_name"));
-		} catch (SQLException | ClassNotFoundException ex) {
+			try (PreparedStatement myInfo = connect.prepareStatement(sql)) {
+				myInfo.setString(1, username);
+				try (ResultSet myInfoResults = myInfo.executeQuery()) {
+					myInfoResults.next();
+
+					// Send these values to our View
+					model.addAttribute("hecklers", hecklers);
+					model.addAttribute("events", events);
+					model.addAttribute("username", myInfoResults.getString("username"));
+					model.addAttribute("image", getProfileImageNameFromUsername(myInfoResults.getString("username")));
+					model.addAttribute("realName", myInfoResults.getString("real_name"));
+					model.addAttribute("blabName", myInfoResults.getString("blab_name"));
+				}
+			}
+		} catch (SQLException ex) {
 			logger.error(ex);
-		} finally {
-			try {
-				if (myHecklers != null) {
-					myHecklers.close();
-				}
-			} catch (SQLException exceptSql) {
-				logger.error(exceptSql);
-			}
-			try {
-				if (connect != null) {
-					connect.close();
-				}
-			} catch (SQLException exceptSql) {
-				logger.error(exceptSql);
-			}
 		}
 
 		return "profile";
@@ -553,7 +547,13 @@ public class UserController {
 			return "{\"message\": \"<script>alert('Error - please login');</script>\"}";
 		}
 
-		logger.info("User is Logged In - continuing... UA=" + request.getHeader("User-Agent") + " U=" + sessionUsername);
+		try {
+			String safeSessionUsername = URLEncoder.encode(sessionUsername, "UTF-8");
+			String safeUserAgent = URLEncoder.encode(request.getHeader("User-Agent"), "UTF-8");
+			logger.info("User is Logged In - continuing... UA=" + safeUserAgent + " U=" + safeSessionUsername);
+		} catch (UnsupportedEncodingException e) {
+			logger.error("Error encoding for logging", e);
+		}
 
 		String oldUsername = sessionUsername;
 
@@ -669,11 +669,22 @@ public class UserController {
 			return Utils.redirect("login?target=profile");
 		}
 
-		logger.info("User is Logged In - continuing... UA=" + request.getHeader("User-Agent") + " U=" + sessionUsername);
+		try {
+			String safeSessionUsername = URLEncoder.encode(sessionUsername, "UTF-8");
+			String safeUserAgent = URLEncoder.encode(request.getHeader("User-Agent"), "UTF-8");
+			logger.info("User is Logged In - continuing... UA=" + safeUserAgent + " U=" + safeSessionUsername);
+		} catch (UnsupportedEncodingException e) {
+			logger.error("Error encoding for logging", e);
+		}
 
 		String path = context.getRealPath("/resources/images") + File.separator + imageName;
 
-		logger.info("Fetching profile image: " + path);
+		try {
+			String safeImageName = URLEncoder.encode(imageName, "UTF-8");
+			logger.info("Fetching profile image: " + safeImageName);
+		} catch (UnsupportedEncodingException e) {
+			logger.error("Error encoding for logging", e);
+		}
 
 		InputStream inputStream = null;
 		OutputStream outStream = null;
@@ -687,12 +698,21 @@ public class UserController {
 				// set to binary type if MIME mapping not found
 				mimeType = "application/octet-stream";
 			}
-			logger.info("MIME type: " + mimeType);
+			try {
+				String safeMimeType = URLEncoder.encode(mimeType, "UTF-8");
+				logger.info("MIME type: " + safeMimeType);
+			} catch (UnsupportedEncodingException e) {
+				logger.error("Error encoding for logging", e);
+			}
+
+			// Sanitize mimeType and imageName to prevent CRLF injection
+			String safeMimeType = mimeType.replaceAll("[\\r\\n]", "");
+			String safeImageName = imageName.replaceAll("[\\r\\n]", "");
 
 			// Set content attributes for the response
-			response.setContentType(mimeType);
+			response.setContentType(safeMimeType);
 			response.setContentLength((int) downloadFile.length());
-			response.setHeader("Content-Disposition", "attachment; filename=" + imageName);
+			response.setHeader("Content-Disposition", "attachment; filename=" + safeImageName);
 
 			// get output stream of the response
 			outStream = response.getOutputStream();
@@ -772,7 +792,12 @@ public class UserController {
 			}
 		}
 
-		logger.info("Username: " + username + " already exists. Try again.");
+		try {
+			String safeUsername = URLEncoder.encode(username, "UTF-8");
+			logger.info("Username: " + safeUsername + " already exists. Try again.");
+		} catch (UnsupportedEncodingException e) {
+			logger.error("Error encoding username for logging", e);
+		}
 		return true;
 	}
 
@@ -903,16 +928,33 @@ public class UserController {
 			message.setFrom(new InternetAddress(from));
 			message.addRecipient(Message.RecipientType.TO, new InternetAddress(to));
 
-			/* START EXAMPLE VULNERABILITY */
-			message.setSubject("Error detected: " + t.getMessage());
-			/* END EXAMPLE VULNERABILITY */
+			// Sanitize error message to prevent header injection
+			String errorMsg = t.getMessage();
+			if (errorMsg != null) {
+				errorMsg = errorMsg.replaceAll("[\\r\\n]", "");
+			} else {
+				errorMsg = "Unknown error";
+			}
+			message.setSubject("Error detected: " + errorMsg);
 
-			message.setText(t.getMessage() + "<br>" + properties.getProperty("test") + displayErrorForWeb(t));
+			message.setText(errorMsg + "<br>" + properties.getProperty("test") + displayErrorForWeb(t));
 
-			logger.info("Sending email to admin");
-			Transport.send(message);
+			try {
+				String safeErrorMsg = URLEncoder.encode(errorMsg, "UTF-8");
+				logger.info("Sending error email to admin: " + safeErrorMsg);
+			} catch (UnsupportedEncodingException e) {
+				logger.error("Error encoding for logging", e);
+			}
+
+			try {
+				Transport.send(message);
+			} catch (MessagingException sendEx) {
+				// Log generic error without exposing details
+				logger.error("Failed to send error notification email");
+			}
 		} catch (MessagingException mex) {
-			mex.printStackTrace();
+			// Log generic error without exposing details
+			logger.error("Failed to create error notification message");
 		}
 	}
 }
