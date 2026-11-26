@@ -4,13 +4,15 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
+import java.io.UnsupportedEncodingException;
+import java.net.URLEncoder;
+import java.security.SecureRandom;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Timestamp;
-import java.util.Random;
 
 import javax.servlet.ServletContext;
 
@@ -35,6 +37,8 @@ public class ResetController {
 
 	@Autowired
 	ServletContext context;
+
+	private static final SecureRandom secureRandom = new SecureRandom();
 
 	private static User[] users = new User[] {
 			User.create("admin", "admin", "Thats Mr Administrator to you."),
@@ -87,8 +91,6 @@ public class ResetController {
 		PreparedStatement commentsStatement = null;
 		java.util.Date now = new java.util.Date();
 
-		Random rand = new Random();
-
 		// Drop existing tables and recreate from schema file
 		recreateDatabaseSchema();
 
@@ -97,7 +99,11 @@ public class ResetController {
 			// Get the Database Connection
 			Class.forName("com.mysql.jdbc.Driver");
 			connect = DriverManager.getConnection(Constants.create().getJdbcConnectionString());
-			logger.info(connect);
+			try {
+				logger.info(URLEncoder.encode(connect.toString(), "UTF-8"));
+			} catch (UnsupportedEncodingException e) {
+				logger.info("[connection info sanitization failed]");
+			}
 			connect.setAutoCommit(false);
 
 			// Add the users
@@ -105,7 +111,11 @@ public class ResetController {
 			usersStatement = connect.prepareStatement(
 					"INSERT INTO users (username, password, password_hint, created_at, last_login, real_name, blab_name) values (?, ?, ?, ?, ?, ?, ?);");
 			for (int i = 0; i < users.length; i++) {
-				logger.info("Adding user " + users[i].getUserName());
+				try {
+					logger.info("Adding user " + URLEncoder.encode(users[i].getUserName(), "UTF-8"));
+				} catch (UnsupportedEncodingException e) {
+					logger.info("Adding user [sanitization failed]");
+				}
 				usersStatement.setString(1, users[i].getUserName());
 				usersStatement.setString(2, users[i].getPassword());
 				usersStatement.setString(3, users[i].getPasswordHint());
@@ -124,11 +134,15 @@ public class ResetController {
 					.prepareStatement("INSERT INTO listeners (blabber, listener, status) values (?, ?, 'Active');");
 			for (int i = 1; i < users.length; i++) {
 				for (int j = 1; j < users.length; j++) {
-					if (rand.nextBoolean() && i != j) {
+					if (secureRandom.nextBoolean() && i != j) {
 						String blabber = users[i].getUserName();
 						String listener = users[j].getUserName();
 
-						logger.info("Adding " + listener + " as a listener of " + blabber);
+						try {
+							logger.info("Adding " + URLEncoder.encode(listener, "UTF-8") + " as a listener of " + URLEncoder.encode(blabber, "UTF-8"));
+						} catch (UnsupportedEncodingException e) {
+							logger.info("Adding listener [sanitization failed]");
+						}
 
 						listenersStatement.setString(1, blabber);
 						listenersStatement.setString(2, listener);
@@ -149,13 +163,17 @@ public class ResetController {
 					.prepareStatement("INSERT INTO blabs (blabber, content, timestamp) values (?, ?, ?);");
 			for (String blabContent : blabsContent) {
 				// Get the array offset for a random user, except admin who's offset 0.
-				int randomUserOffset = rand.nextInt(users.length - 2) + 1;
+				int randomUserOffset = secureRandom.nextInt(users.length - 2) + 1;
 
 				// get the number or seconds until some time in the last 30 days.
-				long vary = rand.nextInt(30 * 24 * 3600);
+				long vary = secureRandom.nextInt(30 * 24 * 3600);
 
 				String username = users[randomUserOffset].getUserName();
-				logger.info("Adding a blab for " + username);
+				try {
+					logger.info("Adding a blab for " + URLEncoder.encode(username, "UTF-8"));
+				} catch (UnsupportedEncodingException e) {
+					logger.info("Adding a blab [sanitization failed]");
+				}
 
 				blabsStatement.setString(1, username);
 				blabsStatement.setString(2, blabContent);
@@ -175,21 +193,25 @@ public class ResetController {
 					"INSERT INTO comments (blabid, blabber, content, timestamp) values (?, ?, ?, ?);");
 			for (int i = 1; i <= blabsContent.length; i++) {
 				// Add a random number of comment
-				int count = rand.nextInt(6); // (between 0 and 6)
+				int count = secureRandom.nextInt(6); // (between 0 and 6)
 
 				for (int j = 0; j < count; j++) {
 					// Get the array offset for a random user, except admin who's offset 0.
-					int randomUserOffset = rand.nextInt(users.length - 2) + 1;
+					int randomUserOffset = secureRandom.nextInt(users.length - 2) + 1;
 					String username = users[randomUserOffset].getUserName();
 
 					// Pick a random comment to add
-					int commentNum = rand.nextInt(commentsContent.length);
+					int commentNum = secureRandom.nextInt(commentsContent.length);
 					String comment = commentsContent[commentNum];
 
 					// get the number or seconds until some time in the last 30 days.
-					long vary = rand.nextInt(30 * 24 * 3600);
+					long vary = secureRandom.nextInt(30 * 24 * 3600);
 
-					logger.info("Adding a comment from " + username + " on blab ID " + String.valueOf(i));
+					try {
+						logger.info("Adding a comment from " + URLEncoder.encode(username, "UTF-8") + " on blab ID " + String.valueOf(i));
+					} catch (UnsupportedEncodingException e) {
+						logger.info("Adding a comment [sanitization failed]");
+					}
 					commentsStatement.setInt(1, i);
 					commentsStatement.setString(2, username);
 					commentsStatement.setString(3, comment);
